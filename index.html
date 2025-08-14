@@ -213,6 +213,19 @@
 		.ttt-cell:nth-child(3n+1) { border-left: none; }
 		.ttt-cell:nth-child(3n) { border-right: none; }
 		.ttt-cell:nth-last-child(-n+3) { border-bottom: none; }
+
+		/* Safe Roulette */
+		.roulette-wrap { display:flex; flex-direction:column; gap:12px; align-items:center; }
+		.drum { width:min(92vw, 360px); aspect-ratio:1; border-radius:50%; background: radial-gradient(circle at 30% 30%, #1f2937, #0f172a); border:2px solid #374151; position:relative; box-shadow: inset 0 0 40px #0006; }
+		.chambers { position:absolute; inset:0; display:grid; place-items:center; }
+		.chamber { width:20%; aspect-ratio:1; border-radius:50%; background:#111114; border:2px solid #475569; display:flex; align-items:center; justify-content:center; color:#60a5fa; font-weight:700; box-shadow: inset 0 0 10px #0008; }
+		.chamber.current { outline:3px solid #60a5fa; }
+		.center-pin { position:absolute; width:14%; aspect-ratio:1; border-radius:50%; background:#0b0f1a; border:2px solid #64748b; left:50%; top:50%; transform:translate(-50%,-50%); box-shadow: inset 0 0 12px #000a; }
+		.rou-status { min-height:20px; color: var(--muted); }
+		@keyframes shake { 0%,100%{ transform: translateX(0);} 25%{ transform: translateX(-4px);} 75%{ transform: translateX(4px);} }
+		.shake { animation: shake 0.25s linear 2; }
+		.rou-overlay { position: fixed; inset: 0; background: rgba(185, 28, 28, 0.25); display: flex; align-items: center; justify-content: center; z-index: 50; }
+		.rou-msg { font-size: clamp(32px, 8vw, 64px); font-weight: 800; color: #fecaca; text-shadow: 0 2px 10px #000; padding: 12px 18px; border: 2px solid #ef4444; border-radius: 12px; background: rgba(127, 29, 29, 0.5); }
 	</style>
 </head>
 <body>
@@ -249,6 +262,10 @@
 				<div class="tile" data-go="ttt">
 					<div class="ti">틱택토</div>
 					<div class="td">3x3 퍼즐, AI 대전</div>
+				</div>
+				<div class="tile" data-go="roulette">
+					<div class="ti">물총 룰렛</div>
+					<div class="td">안전한 러시안 룰렛</div>
 				</div>
 			</div>
 		</section>
@@ -356,6 +373,21 @@
 				<div id="tttBoard" class="board3"></div>
 			</div>
 		</section>
+
+		<section id="roulette" class="screen">
+			<h1>물총 룰렛</h1>
+			<div class="card roulette-wrap">
+				<div class="drum" id="drum">
+					<div class="chambers" id="chambers"></div>
+					<div class="center-pin"></div>
+				</div>
+				<div class="chess-bar">
+					<button id="rouSpin" class="primary">실린더 회전</button>
+					<button id="rouFire">발사</button>
+					<span id="rouStatus" class="rou-status">대기 중</span>
+				</div>
+			</div>
+		</section>
 	</main>
 
 	<script>
@@ -367,13 +399,14 @@
 			steps: document.getElementById('steps'),
 			calendar: document.getElementById('calendar'),
 			gomoku: document.getElementById('gomoku'),
-			ttt: document.getElementById('ttt')
+			ttt: document.getElementById('ttt'),
+			roulette: document.getElementById('roulette')
 		};
 		function showScreen(name) {
 			Object.entries(screens).forEach(([k, el]) => {
 				el.classList.toggle('active', k === name);
 			});
-			whereEl.textContent = name === 'home' ? '메인' : ({ weather:'날씨', steps:'만보기', calendar:'캘린더', gomoku:'오목', ttt:'틱택토' }[name] || '메인');
+			whereEl.textContent = name === 'home' ? '메인' : ({ weather:'날씨', steps:'만보기', calendar:'캘린더', gomoku:'오목', ttt:'틱택토', roulette:'물총 룰렛' }[name] || '메인');
 			if (location.hash !== '#' + name) {
 				location.hash = name;
 			}
@@ -602,6 +635,49 @@
 		tttBoardEl.addEventListener('click', (e)=>{ const t=e.target.closest('.ttt-cell'); if(!t) return; tttHuman(parseInt(t.dataset.i,10)); });
 		tttNewBtn.addEventListener('click', tttInit);
 		tttInit();
+
+		// ---------- Safe Roulette ----------
+		const chambersEl = document.getElementById('chambers');
+		const drumEl = document.getElementById('drum');
+		const rouSpinBtn = document.getElementById('rouSpin');
+		const rouFireBtn = document.getElementById('rouFire');
+		const rouStatus = document.getElementById('rouStatus');
+		let rouIdx=0, rouWetIdx=0, rouSpinning=false;
+
+		// Sound (WebAudio)
+		let audioCtx = null;
+		function getCtx(){ if(!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch{} } if(audioCtx && audioCtx.state==='suspended') audioCtx.resume(); return audioCtx; }
+		function makeEnv(ctx, durationMs, startGain){ const g=ctx.createGain(); const now=ctx.currentTime; const dur=durationMs/1000; g.gain.setValueAtTime(Math.max(startGain,0.0001), now); g.gain.exponentialRampToValueAtTime(0.0001, now+dur); return g; }
+		function playClick(freq=800, ms=40, vol=0.08){ const ctx=getCtx(); if(!ctx) return; const osc=ctx.createOscillator(); osc.type='square'; osc.frequency.value=freq; const env=makeEnv(ctx, ms, vol); osc.connect(env).connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime+ms/1000); }
+		function playSpinTick(){ playClick(300, 20, 0.04); }
+		function playThump(freq=120, ms=180, vol=0.12){ const ctx=getCtx(); if(!ctx) return; const o=ctx.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(freq, ctx.currentTime); const e=makeEnv(ctx, ms, vol); o.connect(e).connect(ctx.destination); o.start(); o.stop(ctx.currentTime+ms/1000); }
+		function playSplash(){ const ctx=getCtx(); if(!ctx) return; const buffer=ctx.createBuffer(1, ctx.sampleRate*0.3, ctx.sampleRate); const data=buffer.getChannelData(0); for(let i=0;i<data.length;i++){ data[i]=(Math.random()*2-1)*Math.exp(-i/data.length*6); } const src=ctx.createBufferSource(); src.buffer=buffer; const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1200; bp.Q.value=0.8; const env=makeEnv(ctx, 250, 0.15); src.connect(bp).connect(env).connect(ctx.destination); src.start(); playThump(120, 220, 0.1); }
+		function rouRender(){
+			chambersEl.innerHTML='';
+			const n=6, radius=40; // percent of half size
+			for(let i=0;i<n;i++){
+				const a=(Math.PI*2*i)/n - Math.PI/2;
+				const x=50 + Math.cos(a)*35; const y=50 + Math.sin(a)*35;
+				const cell=document.createElement('div');
+				cell.className='chamber'+(i===rouIdx?' current':'');
+				cell.style.position='absolute';
+				cell.style.left=`calc(${x}% - 10%)`;
+				cell.style.top=`calc(${y}% - 10%)`;
+				cell.textContent = i+1;
+				chambersEl.appendChild(cell);
+			}
+		}
+		function rouReset(){ rouIdx=0; rouWetIdx=Math.floor(Math.random()*6); rouStatus.textContent='실린더를 회전해 시작하세요.'; rouRender(); }
+		function rouSpin(){ if(rouSpinning) return; rouSpinning=true; const turns=10+Math.floor(Math.random()*10); let t=0; const timer=setInterval(()=>{ rouIdx=(rouIdx+1)%6; rouRender(); playSpinTick(); if(++t>turns){ clearInterval(timer); rouSpinning=false; rouStatus.textContent='조준 준비 완료.'; } }, 60); }
+		function rouFire(){ if(rouSpinning) return; if(rouIdx===rouWetIdx){ rouStatus.textContent='빵! 물 맞음 💦'; drumEl.classList.add('shake'); setTimeout(()=>drumEl.classList.remove('shake'), 500); playSplash();
+			// 죽음(패배) 오버레이
+			const ov=document.createElement('div'); ov.className='rou-overlay'; ov.innerHTML=`<div class="rou-msg">죽었습니다</div>`; document.body.appendChild(ov);
+			setTimeout(()=>{ ov.remove(); rouReset(); }, 1500);
+		} else { rouStatus.textContent='딸깍! 비었음'; playClick(900, 30, 0.06); rouIdx=(rouIdx+1)%6; rouRender(); }
+		}
+		rouSpinBtn.addEventListener('click', rouSpin);
+		rouFireBtn.addEventListener('click', rouFire);
+		rouReset();
 
 		// ---------- Gomoku (오목) ----------
 		const gomokuCanvas = document.getElementById('gomokuCanvas');
