@@ -226,7 +226,25 @@
 		.shake { animation: shake 0.25s linear 2; }
 		.rou-overlay { position: fixed; inset: 0; background: rgba(185, 28, 28, 0.25); display: flex; align-items: center; justify-content: center; z-index: 50; }
 		.rou-msg { font-size: clamp(32px, 8vw, 64px); font-weight: 800; color: #fecaca; text-shadow: 0 2px 10px #000; padding: 12px 18px; border: 2px solid #ef4444; border-radius: 12px; background: rgba(127, 29, 29, 0.5); }
+
+		/* AI Chat */
+		.chat-wrap { display:flex; flex-direction:column; gap:10px; }
+		.chat-setup { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+		.input { background:#111114; color:var(--fg); border:1px solid var(--border); border-radius:10px; padding:8px 10px; }
+		.chat-log { height: min(60vh, 520px); overflow:auto; border:1px solid var(--border); border-radius:12px; padding:10px; background:#0e1013; }
+		.msg { display:flex; margin:6px 0; }
+		.msg .bubble { max-width: 85%; padding:10px 12px; border-radius:12px; white-space:pre-wrap; line-height:1.5; }
+		.msg.user { justify-content:flex-end; }
+		.msg.assistant { justify-content:flex-start; }
+		.msg.user .bubble { background:#1f2937; border:1px solid #374151; }
+		.msg.assistant .bubble { background:#111827; border:1px solid #374151; }
+		.chat-input { display:flex; gap:8px; align-items:flex-end; }
+		.chat-input textarea { flex:1; min-height:48px; max-height:120px; resize:vertical; }
 	</style>
+</style>
+<!-- WebLLM runtime for browser-local free AI mode -->
+<script src="https://unpkg.com/@mlc-ai/web-llm@0.2.73/dist/index.min.js"></script>
+</head>
 </head>
 <body>
 	<div class="appbar">
@@ -266,6 +284,10 @@
 				<div class="tile" data-go="roulette">
 					<div class="ti">물총 룰렛</div>
 					<div class="td">안전한 러시안 룰렛</div>
+				</div>
+				<div class="tile" data-go="chat">
+					<div class="ti">AI 채팅</div>
+					<div class="td">키로 연결해 대화</div>
 				</div>
 			</div>
 		</section>
@@ -388,6 +410,24 @@
 				</div>
 			</div>
 		</section>
+
+		<section id="chat" class="screen">
+			<h1>AI 채팅</h1>
+			<div class="card chat-wrap">
+				<div class="chat-setup">
+					<select id="chatLocalModel" class="select">
+						<option value="Qwen2.5-3B-Instruct-q4f16_1-MLC" selected>WebLLM Qwen2.5 3B</option>
+						<option value="Phi-3-mini-4k-instruct-q4f16_1-MLC">WebLLM Phi-3 mini</option>
+					</select>
+					<span id="chatStatus" class="muted">바로 대화 가능합니다.</span>
+				</div>
+				<div id="chatLog" class="chat-log"></div>
+				<div class="chat-input">
+					<textarea id="chatInput" class="input" placeholder="메시지를 입력하세요"></textarea>
+					<button id="chatSend" class="primary">전송</button>
+				</div>
+			</div>
+		</section>
 	</main>
 
 	<script>
@@ -400,16 +440,18 @@
 			calendar: document.getElementById('calendar'),
 			gomoku: document.getElementById('gomoku'),
 			ttt: document.getElementById('ttt'),
-			roulette: document.getElementById('roulette')
+			roulette: document.getElementById('roulette'),
+			chat: document.getElementById('chat')
 		};
 		function showScreen(name) {
 			Object.entries(screens).forEach(([k, el]) => {
 				el.classList.toggle('active', k === name);
 			});
-			whereEl.textContent = name === 'home' ? '메인' : ({ weather:'날씨', steps:'만보기', calendar:'캘린더', gomoku:'오목', ttt:'틱택토', roulette:'물총 룰렛' }[name] || '메인');
+			whereEl.textContent = name === 'home' ? '메인' : ({ weather:'날씨', steps:'만보기', calendar:'캘린더', gomoku:'오목', ttt:'틱택토', roulette:'물총 룰렛', chat:'AI 채팅' }[name] || '메인');
 			if (location.hash !== '#' + name) {
 				location.hash = name;
 			}
+			try { if (name === 'chat') ensureChatAutoInit(); } catch {}
 		}
 		window.addEventListener('hashchange', () => {
 			const name = location.hash.replace('#','') || 'home';
@@ -847,6 +889,197 @@
 		});
 		stepResetBtn.addEventListener('click', () => { stepCount = 0; stepCountEl.textContent = '0'; saveSteps(); });
 		loadSteps();
+
+		// ---------- AI Chat ----------
+		const chatApiKeyEl = { value: '' }; // 제거된 입력 대체
+		const chatModelEl = { value: '' };
+		const chatOrgEl = { value: '' };
+		const chatLocalModelEl = document.getElementById('chatLocalModel');
+		const chatConnectBtn = document.getElementById('chatConnect');
+		const chatStatusEl = document.getElementById('chatStatus');
+		const chatLogEl = document.getElementById('chatLog');
+		const chatInputEl = document.getElementById('chatInput');
+		const chatSendBtn = document.getElementById('chatSend');
+
+		let chatReady=false;
+		let chatFallback=false;
+		async function loadWebLLMScript(){
+			if (globalThis.webllm) return;
+			const cdns = [
+				'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.73/dist/index.min.js',
+				'https://unpkg.com/@mlc-ai/web-llm@0.2.73/dist/index.min.js',
+				'https://fastly.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.73/dist/index.min.js'
+			];
+			let lastErr;
+			for (const url of cdns){
+				try{
+					await new Promise((resolve, reject)=>{
+						const s=document.createElement('script');
+						s.src=url; s.async=true; s.crossOrigin='anonymous';
+						const to=setTimeout(()=>{ s.remove(); reject(new Error('timeout')); }, 12000);
+						s.onload=()=>{ clearTimeout(to); resolve(); };
+						s.onerror=()=>{ clearTimeout(to); s.remove(); reject(new Error('load error')); };
+						document.head.appendChild(s);
+					});
+					if (globalThis.webllm) return; // loaded
+				} catch(e){ lastErr=e; }
+			}
+			throw new Error('WebLLM 스크립트 로드 실패');
+		}
+
+        async function attemptInitWebLLMBackground(){
+            try{
+                if (!('gpu' in navigator)) { throw new Error('WebGPU 미지원'); }
+                await loadWebLLMScript();
+                const selected = chatLocalModelEl.value;
+                if(!window.__mlc){
+                    const w = globalThis.webllm;
+                    window.__mlc = await w.CreateMLCEngine(selected, { gpu_memory_utilization: 0.7 });
+                }
+                chatFallback=false; chatReady=true; chatStatusEl.textContent='WebLLM 준비 완료. 대화하세요!';
+            } catch(e){ /* keep fallback silently */ }
+        }
+
+        async function ensureChatAutoInit(){
+            if(chatReady) return;
+            // 즉시 대화 가능(폴백) 상태로 전환 후, 백그라운드 로딩 시도
+            chatReady = true; chatFallback = true;
+            chatStatusEl.textContent = '간단 오프라인 봇 모드 · 로컬 모델 백그라운드 로딩 중…';
+            attemptInitWebLLMBackground();
+        }
+		function addMsg(role, text){
+			const div=document.createElement('div'); div.className=`msg ${role}`; const b=document.createElement('div'); b.className='bubble'; b.textContent=text; div.appendChild(b); chatLogEl.appendChild(div); chatLogEl.scrollTop=chatLogEl.scrollHeight;
+		}
+		async function callOpenAI(apiKey, model, messages, org){
+			const headers = { 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` };
+			if (org) headers['OpenAI-Organization'] = org;
+			const res = await fetch('https://api.openai.com/v1/chat/completions', {
+				method:'POST',
+				headers,
+				body: JSON.stringify({ model, messages, temperature: 0.7 })
+			});
+			if(!res.ok){
+				let msg = `API 오류: ${res.status}`;
+				try { const j = await res.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch {}
+				throw new Error(msg);
+			}
+			const data = await res.json();
+			return data.choices?.[0]?.message?.content || '';
+		}
+
+		async function testKey(apiKey, org){
+			const headers = { 'Authorization':`Bearer ${apiKey}` };
+			if (org) headers['OpenAI-Organization'] = org;
+			const res = await fetch('https://api.openai.com/v1/models', { headers });
+			if (!res.ok){
+				let msg = `연결 실패: ${res.status}`; try { const j=await res.json(); if(j?.error?.message) msg=j.error.message; } catch {}
+				throw new Error(msg);
+			}
+		}
+
+		if (chatConnectBtn) chatConnectBtn.remove();
+
+		function fallbackReply(text){
+			const lower=text.toLowerCase();
+			const now=new Date();
+			// 인사/자기소개
+			if(/^(hi|hello|hey|안녕|ㅎㅇ)/i.test(lower)) return '안녕하세요! 저는 이 사이트에 내장된 오프라인 보조 AI입니다.';
+			if(/(are you ai|ai (are|r) you|너.*ai|인공지능이야|챗봇|who are you)/i.test(lower)) return '네, 저는 이 사이트에 내장된 보조 AI예요. 인터넷 없이도 간단한 도움과 안내가 가능합니다.';
+			if(/이름|name/i.test(lower)) return '저는 이 사이트 전용 미니 어시스턴트입니다.';
+			if(/(what can you do|무엇이|뭐 할수|가능|기능|help|도움)/i.test(lower)) return '저는 메뉴 안내/간단 질의 응답을 도와요. 주요 기능: 날씨(도시 검색), 만보기(센서), 캘린더(일정/공휴일), 게임(오목/틱택토/물총 룰렛), AI 채팅(로컬/클라우드). 무엇을 하실까요?';
+			// 유틸 안내
+			if(/날씨|weather/i.test(lower)) return '날씨 화면으로 이동해 도시를 검색하세요. 메인 → 날씨.';
+			if(/만보기|걸음|pedometer/i.test(lower)) return '만보기에서 시작 버튼을 누르고 휴대폰을 들고 걸으면 됩니다. 메인 → 만보기.';
+			if(/캘린더|일정|calendar/i.test(lower)) return '캘린더에서 날짜를 클릭해 일정을 추가할 수 있어요. 공휴일도 표시됩니다.';
+			if(/게임|game|오목|gomoku|틱택토|tic|룰렛|roulette/i.test(lower)) return '게임 파트에서 오목/틱택토/물총 룰렛을 즐길 수 있어요. 메인 → 게임 파트.';
+			// 일반
+			if(/시간|time/i.test(lower)) return `지금 시각은 ${now.toLocaleString()} 입니다.`;
+			if(/(고마워|감사)/.test(lower)) return '천만에요!';
+			// 기본 답변
+			return `요청: "${text}" — 어떤 기능을 도와드릴까요? (날씨/만보기/캘린더/게임/AI 채팅)`;
+		}
+
+		// 네트 연결 허용 시, 키 없이 외부 공개 API로 간단 질의 응답 강화
+		function isSimpleMath(s){ return /^[\s\d()+\-*/%.^]+$/.test(s) && /\d/.test(s); }
+		function safeCalc(expr){
+			try{
+				// ^ -> ** (JS 거듭제곱), eval 보호: 허용 문자만
+				const sanitized = expr.replace(/\^/g,'**');
+				// eslint-disable-next-line no-eval
+				const v = eval(sanitized);
+				if (typeof v === 'number' && isFinite(v)) return String(v);
+			}catch{}
+			return null;
+		}
+		async function wikiSummary(query){
+			async function tryLang(lang){
+				const searchUrl = `https://${lang}.wikipedia.org/w/rest.php/v1/search/title?q=${encodeURIComponent(query)}&limit=1`;
+				const sr = await fetch(searchUrl);
+				if(!sr.ok) return null; const s = await sr.json();
+				const item = s?.pages?.[0]; if(!item) return null;
+				const title = item.title;
+				const sumUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}?redirect=true`;
+				const r = await fetch(sumUrl);
+				if(!r.ok) return null; const j = await r.json();
+				return j?.extract || j?.description || null;
+			}
+			try { return await tryLang('ko') || await tryLang('en'); } catch { return null; }
+		}
+		async function ddgInstant(query){
+			try{
+				const u = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+				const r = await fetch(u);
+				if(!r.ok) return null; const j = await r.json();
+				return j?.AbstractText || j?.Answer || j?.Definition || null;
+			}catch{ return null; }
+		}
+		async function smartFallbackAnswer(text){
+			// 1) 의도 우선 응답(인사/자기소개/기능안내 등)
+			const base = fallbackReply(text);
+			if (!base.startsWith('요청:')) return base;
+			// 2) 계산
+			if (isSimpleMath(text)) { const v = safeCalc(text); if(v!==null) return v; }
+			// 3) 요약/간단 지식
+			const w = await wikiSummary(text); if (w) return w;
+			const d = await ddgInstant(text); if (d) return d;
+			// 4) 기본 안내로 폴백
+			return base;
+		}
+
+        async function chatSend(){
+            if(!chatReady){ try{ await ensureChatAutoInit(); }catch{} }
+			const text = chatInputEl.value.trim(); if(!text) return;
+			chatInputEl.value=''; addMsg('user', text);
+			chatSendBtn.disabled=true; chatSendBtn.textContent='…';
+			try{
+				const key = chatApiKeyEl.value.trim();
+				if(!key && window.__mlc && !chatFallback){
+					// WebLLM generate
+					const reply = await window.__mlc.chat.completions.create({
+						messages: [
+							{ role:'system', content:'You are a helpful assistant.' },
+							{ role:'user', content: text }
+						],
+					});
+					addMsg('assistant', reply?.choices?.[0]?.message?.content || '(응답 없음)');
+				} else if(chatFallback){
+					addMsg('assistant', '생각 중…');
+					const ans = await smartFallbackAnswer(text);
+					chatLogEl.lastChild.querySelector('.bubble').textContent = ans;
+				} else {
+					const content = await callOpenAI(key, chatModelEl.value, [
+						{ role:'system', content:'You are a helpful assistant.' },
+						{ role:'user', content: text }
+					], chatOrgEl.value.trim());
+					addMsg('assistant', content || '(응답 없음)');
+				}
+			} catch(e){ addMsg('assistant', e.message || '오류가 발생했습니다.'); }
+			chatSendBtn.disabled=false; chatSendBtn.textContent='전송';
+		}
+		chatSendBtn.addEventListener('click', chatSend);
+		chatInputEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); chatSend(); } });
+		// 자동 준비: 채팅 화면 입장 시 WebLLM 즉시 초기화
+		ensureChatAutoInit();
 
 		// ---------- Calendar ----------
 		const calTitle = document.getElementById('calTitle');
