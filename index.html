@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+	<meta name="theme-color" content="#0b0b0c" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+	<title>간단 날씨</title>
+	<style>
+		:root {
+			color-scheme: light dark;
+			--bg: #0b0b0c;
+			--fg: #f2f2f3;
+			--muted: #a1a1aa;
+			--card: #18181b;
+			--accent: #60a5fa;
+			--border: #27272a;
+		}
+		html, body {
+			margin: 0;
+			padding: 0;
+			font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Noto Color Emoji, sans-serif;
+			background: var(--bg);
+			color: var(--fg);
+			-webkit-tap-highlight-color: transparent;
+			touch-action: manipulation;
+			padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+		}
+		.container {
+			max-width: 880px;
+			margin: 32px auto;
+			padding: 0 16px;
+		}
+		h1 {
+			font-size: 24px;
+			margin: 0 0 16px 0;
+		}
+		.card {
+			background: var(--card);
+			border: 1px solid var(--border);
+			border-radius: 12px;
+			padding: 16px;
+		}
+		.controls {
+			display: flex;
+			gap: 8px;
+			flex-wrap: wrap;
+			margin-bottom: 12px;
+		}
+		input[type="text"], input[type="search"] {
+			flex: 1 1 260px;
+			padding: 10px 12px;
+			border-radius: 10px;
+			border: 1px solid var(--border);
+			background: transparent;
+			color: var(--fg);
+			outline: none;
+			min-height: 44px; /* 터치 타겟 */
+			font-size: 16px; /* iOS 확대 방지 */
+		}
+		button {
+			padding: 10px 14px;
+			border-radius: 10px;
+			border: 1px solid var(--border);
+			background: #1f2937;
+			color: var(--fg);
+			cursor: pointer;
+			min-height: 44px;
+			font-size: 16px;
+		}
+		button.primary {
+			background: var(--accent);
+			color: #0b1220;
+			border: none;
+			font-weight: 600;
+		}
+		.row {
+			display: grid;
+			grid-template-columns: 1fr;
+			gap: 12px;
+		}
+		@media (min-width: 720px) {
+			.row {
+				grid-template-columns: 1.2fr 1fr;
+			}
+		}
+		.section {
+			background: #111114;
+			border: 1px solid var(--border);
+			border-radius: 12px;
+			padding: 16px;
+		}
+		.muted { color: var(--muted); }
+		.current {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+		}
+		.temp {
+			font-size: 44px;
+			font-weight: 700;
+		}
+		.desc {
+			font-size: 18px;
+		}
+		.kv {
+			display: grid;
+			grid-template-columns: auto 1fr;
+			gap: 4px 10px;
+			font-size: 14px;
+		}
+		.forecast {
+			display: grid;
+			grid-template-columns: repeat(7, 1fr);
+			gap: 8px;
+		}
+		@media (max-width: 720px) {
+			.forecast { grid-template-columns: repeat(3, 1fr); }
+		}
+		@media (max-width: 420px) {
+			.forecast { grid-template-columns: repeat(2, 1fr); }
+		}
+		.day {
+			text-align: center;
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			padding: 10px 8px;
+		}
+		.day .t { font-weight: 600; }
+		.footer { margin-top: 8px; font-size: 12px; }
+		a { color: var(--accent); text-decoration: none; }
+
+		/* App structure */
+		.appbar {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			padding: 12px 16px;
+			position: sticky;
+			top: 0;
+			z-index: 10;
+			background: rgba(11, 11, 12, 0.7);
+			backdrop-filter: blur(8px);
+			border-bottom: 1px solid var(--border);
+		}
+		.appbar .title { font-weight: 700; }
+		.screen { display: none; }
+		.screen.active { display: block; }
+		.hidden { display: none !important; }
+		/* Home tiles */
+		.tiles {
+			display: grid;
+			grid-template-columns: repeat(3, 1fr);
+			gap: 12px;
+		}
+		@media (max-width: 960px) {
+			.tiles { grid-template-columns: repeat(2, 1fr); }
+		}
+		@media (max-width: 560px) {
+			.tiles { grid-template-columns: 1fr; }
+		}
+		.tile {
+			background: linear-gradient(180deg, #1a1a1f, #121215);
+			border: 1px solid var(--border);
+			border-radius: 14px;
+			padding: 18px;
+			cursor: pointer;
+			transition: transform .12s ease, border-color .12s ease;
+		}
+		.tile:hover { transform: translateY(-2px); border-color: #3b82f6; }
+		.tile .ti { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+		.tile .td { color: var(--muted); font-size: 14px; }
+
+		/* Steps */
+		.steps-wrap { text-align: center; }
+		.steps-count { font-size: 56px; font-weight: 800; margin: 8px 0 4px; }
+		.steps-sub { color: var(--muted); margin-bottom: 10px; }
+		.steps-controls { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+		.select { background:#111114; color:var(--fg); border:1px solid var(--border); border-radius:10px; padding:8px 10px; }
+
+		/* Calendar */
+		.cal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+		.cal-grid { display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; }
+		.cal-cell { border:1px solid var(--border); border-radius:10px; padding:8px; min-height:76px; position:relative; background:#111114; }
+		.cal-cell .d { font-weight:600; font-size:14px; }
+		.cal-cell.today { outline:2px solid var(--accent); }
+		.badge { position:absolute; right:8px; bottom:8px; background:#1f2937; color:#cbd5e1; border-radius:999px; padding:2px 6px; font-size:11px; border:1px solid var(--border); }
+		.holiday { color:#fca5a5; font-size:12px; margin-top:6px; }
+
+		/* Games */
+		.section-title { display:flex; align-items:center; gap:8px; margin:20px 0 12px; }
+		.hr { height:1px; background:linear-gradient(90deg, transparent, #27272a, transparent); margin:16px 0; }
+		.board8 { width: 100%; max-width: 520px; aspect-ratio: 1 / 1; box-sizing: border-box; margin: 0 auto; display:grid; grid-template-columns: repeat(8, 1fr); border: 2px solid #374151; border-radius: 10px; overflow:hidden; user-select:none; }
+		.square { display:flex; align-items:center; justify-content:center; font-size: clamp(22px, 6vw, 40px); cursor:pointer; }
+		.dark { background:#374151; }
+		.light { background:#9ca3af22; }
+		.sel { outline: 3px solid #60a5fa; }
+		.hint { box-shadow: inset 0 0 0 3px #60a5fa66; }
+		.chess-bar { display:flex; gap:8px; align-items:center; margin:8px 0; flex-wrap:wrap; }
+		.tag { border:1px solid var(--border); border-radius:999px; padding:4px 8px; font-size:12px; color:var(--muted); }
+
+		/* Gomoku */
+		.canvas-wrap { width:min(92vw, 520px); }
+		#gomokuCanvas { width:100%; aspect-ratio:1; background:#0e1013; border:2px solid #374151; border-radius:10px; display:block; }
+
+		/* Tic-Tac-Toe */
+		.board3 { width:100%; max-width: 400px; aspect-ratio: 1/1; margin: 0 auto; display:grid; grid-template-columns: repeat(3, 1fr); box-sizing:border-box; }
+		.ttt-cell { display:flex; align-items:center; justify-content:center; font-size: clamp(32px, 12vw, 64px); border:2px solid #374151; background:#111114; cursor:pointer; user-select:none; }
+		.ttt-cell:nth-child(-n+3) { border-top: none; }
+		.ttt-cell:nth-child(3n+1) { border-left: none; }
+		.ttt-cell:nth-child(3n) { border-right: none; }
+		.ttt-cell:nth-last-child(-n+3) { border-bottom: none; }
+	</style>
+</head>
+<body>
+	<div class="appbar">
+		<div class="title">올인원 도구</div>
+		<div id="where">메인</div>
+	</div>
+
+	<main class="container">
+		<section id="home" class="screen active">
+			<h1>무엇을 하시겠어요?</h1>
+			<div class="tiles">
+				<div class="tile" data-go="weather">
+					<div class="ti">날씨</div>
+					<div class="td">현재 기온과 7일 예보</div>
+				</div>
+				<div class="tile" data-go="steps">
+					<div class="ti">만보기</div>
+					<div class="td">걸음 수 기록 및 센서 연동</div>
+				</div>
+				<div class="tile" data-go="calendar">
+					<div class="ti">캘린더</div>
+					<div class="td">월간 일정 관리</div>
+				</div>
+			</div>
+
+			<div class="hr"></div>
+			<div class="section-title"><h2 style="margin:0">게임 파트</h2><span class="tag">보통 난이도 AI</span></div>
+			<div class="tiles">
+				<div class="tile" data-go="gomoku">
+					<div class="ti">오목</div>
+					<div class="td">AI와 5목 대결</div>
+				</div>
+				<div class="tile" data-go="ttt">
+					<div class="ti">틱택토</div>
+					<div class="td">3x3 퍼즐, AI 대전</div>
+				</div>
+			</div>
+		</section>
+
+		<section id="weather" class="screen">
+			<h1>날씨</h1>
+			<div class="card">
+				<div class="controls">
+					<input id="cityInput" type="search" placeholder="도시를 입력하세요 (예: 서울, Busan)" autocomplete="off" enterkeyhint="search" />
+					<button id="searchBtn" class="primary">검색</button>
+					<button id="locBtn">내 위치로</button>
+				</div>
+				<div id="status" class="muted" style="min-height:20px;"></div>
+
+				<div class="row">
+					<div class="section">
+						<div class="current">
+							<div>
+								<div id="place" class="muted">—</div>
+								<div class="temp" id="tempNow">—°C</div>
+								<div class="desc" id="descNow">—</div>
+							</div>
+							<div class="kv">
+								<div class="muted">풍속</div><div id="windNow">— m/s</div>
+								<div class="muted">최고/최저</div><div id="hiLo">— / — °C</div>
+							</div>
+						</div>
+					</div>
+					<div class="section">
+						<div class="muted" style="margin-bottom:8px;">7일 예보</div>
+						<div id="forecast" class="forecast"></div>
+					</div>
+				</div>
+
+				<div class="footer muted">
+					데이터: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open‑Meteo</a> ·
+					지오코딩: <a href="https://geocoding-api.open-meteo.com/" target="_blank" rel="noreferrer">Open‑Meteo Geocoding</a>
+				</div>
+			</div>
+		</section>
+
+		<section id="steps" class="screen">
+			<h1>만보기</h1>
+			<div class="card steps-wrap">
+				<div id="stepCount" class="steps-count">0</div>
+				<div id="stepStatus" class="steps-sub">대기 중</div>
+				<div class="steps-controls">
+					<button id="stepToggle" class="primary">시작</button>
+					<button id="stepReset">리셋</button>
+					<select id="stepSensitivity" class="select">
+						<option value="low">감도 낮음</option>
+						<option value="med" selected>감도 중간</option>
+						<option value="high">감도 높음</option>
+					</select>
+				</div>
+				<div class="footer muted" style="margin-top:12px;">모바일에서는 센서 권한이 필요할 수 있습니다.</div>
+			</div>
+		</section>
+
+		<section id="calendar" class="screen">
+			<h1>캘린더</h1>
+			<div class="card">
+				<div class="cal-header">
+					<button id="calPrev">이전</button>
+					<div><span id="calTitle">2025년 1월</span></div>
+					<button id="calNext">다음</button>
+				</div>
+				<div class="cal-grid" id="calWeek">
+					<div class="muted">일</div><div class="muted">월</div><div class="muted">화</div><div class="muted">수</div><div class="muted">목</div><div class="muted">금</div><div class="muted">토</div>
+				</div>
+				<div class="cal-grid" id="calDays"></div>
+			</div>
+		</section>
+
+
+
+		<section id="gomoku" class="screen">
+			<h1>오목</h1>
+			<div class="card">
+				<div class="chess-bar">
+					<button id="gomokuNew" class="primary">새 게임</button>
+					<span id="gomokuTurn" class="tag">흑 차례</span>
+					<select id="gomokuLevel" class="select">
+						<option value="easy">쉬움</option>
+						<option value="normal" selected>보통</option>
+						<option value="hard">어려움</option>
+					</select>
+				</div>
+				<div class="canvas-wrap"><canvas id="gomokuCanvas" width="600" height="600"></canvas></div>
+			</div>
+		</section>
+
+		<section id="ttt" class="screen">
+			<h1>틱택토</h1>
+			<div class="card">
+				<div class="chess-bar">
+					<button id="tttNew" class="primary">새 게임</button>
+					<span id="tttTurn" class="tag">X 차례</span>
+					<select id="tttLevel" class="select">
+						<option value="easy">쉬움</option>
+						<option value="normal" selected>보통</option>
+						<option value="hard">어려움</option>
+					</select>
+				</div>
+				<div id="tttBoard" class="board3"></div>
+			</div>
+		</section>
+	</main>
+
+	<script>
+		// ---------- Router ----------
+		const whereEl = document.getElementById('where');
+		const screens = {
+			home: document.getElementById('home'),
+			weather: document.getElementById('weather'),
+			steps: document.getElementById('steps'),
+			calendar: document.getElementById('calendar'),
+			gomoku: document.getElementById('gomoku'),
+			ttt: document.getElementById('ttt')
+		};
+		function showScreen(name) {
+			Object.entries(screens).forEach(([k, el]) => {
+				el.classList.toggle('active', k === name);
+			});
+			whereEl.textContent = name === 'home' ? '메인' : ({ weather:'날씨', steps:'만보기', calendar:'캘린더', gomoku:'오목', ttt:'틱택토' }[name] || '메인');
+			if (location.hash !== '#' + name) {
+				location.hash = name;
+			}
+		}
+		window.addEventListener('hashchange', () => {
+			const name = location.hash.replace('#','') || 'home';
+			if (screens[name]) showScreen(name); else showScreen('home');
+		});
+		document.querySelectorAll('.tile[data-go]').forEach(t => t.addEventListener('click', () => showScreen(t.dataset.go)));
+		if (!location.hash) location.hash = '#home';
+		showScreen((location.hash || '#home').replace('#',''));
+
+		const statusEl = document.getElementById('status');
+		const placeEl = document.getElementById('place');
+		const tempNowEl = document.getElementById('tempNow');
+		const descNowEl = document.getElementById('descNow');
+		const windNowEl = document.getElementById('windNow');
+		const hiLoEl = document.getElementById('hiLo');
+		const forecastEl = document.getElementById('forecast');
+
+		const cityInput = document.getElementById('cityInput');
+		const searchBtn = document.getElementById('searchBtn');
+		const locBtn = document.getElementById('locBtn');
+
+		const weatherCodeToKo = (code) => {
+			// Open‑Meteo weathercode 표준 매핑(간단 요약)
+			const m = {
+				0: ['맑음', '☀️'],
+				1: ['대체로 맑음', '🌤️'],
+				2: ['부분적으로 흐림', '⛅'],
+				3: ['흐림', '☁️'],
+				45: ['안개', '🌫️'], 48: ['상고대 안개', '🌫️'],
+				51: ['이슬비 약함', '🌦️'], 53: ['이슬비 보통', '🌦️'], 55: ['이슬비 강함', '🌧️'],
+				56: ['어는 이슬비 약함', '🌧️'], 57: ['어는 이슬비 강함', '🌧️'],
+				61: ['비 약함', '🌦️'], 63: ['비 보통', '🌧️'], 65: ['비 강함', '🌧️'],
+				66: ['어는 비 약함', '🌧️'], 67: ['어는 비 강함', '🌧️'],
+				71: ['눈 약함', '🌨️'], 73: ['눈 보통', '🌨️'], 75: ['눈 강함', '❄️'],
+				77: ['싸락눈', '❄️'],
+				80: ['소나기 약함', '🌦️'], 81: ['소나기 보통', '🌧️'], 82: ['소나기 강함', '🌧️'],
+				85: ['눈 소나기 약함', '🌨️'], 86: ['눈 소나기 강함', '❄️'],
+				95: ['뇌우', '⛈️'], 96: ['뇌우(우박 약함)', '⛈️'], 99: ['뇌우(우박 강함)', '⛈️']
+			};
+			return m[code] || ['알 수 없음', '❔'];
+		};
+
+		const fmtDay = (iso) => {
+			try {
+				const d = new Date(iso + 'T12:00:00'); // TZ 어긋남 방지
+				const fmt = new Intl.DateTimeFormat('ko-KR', { weekday: 'short', month: 'numeric', day: 'numeric' });
+				return fmt.format(d);
+			} catch {
+				return iso;
+			}
+		};
+
+		async function geocodeCityToLatLon(city) {
+			const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ko&format=json`;
+			const res = await fetch(url);
+			if (!res.ok) throw new Error('지역 검색 실패');
+			const data = await res.json();
+			if (!data || !data.results || data.results.length === 0) throw new Error('도시를 찾을 수 없습니다.');
+			const r = data.results[0];
+			return {
+				latitude: r.latitude,
+				longitude: r.longitude,
+				label: [r.name, r.admin1, r.country].filter(Boolean).join(', ')
+			};
+		}
+
+		async function fetchWeather(lat, lon) {
+			// current_weather + daily 예보
+			const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`;
+			const res = await fetch(url);
+			if (!res.ok) throw new Error('날씨 API 호출 실패');
+			return res.json();
+		}
+
+		function renderWeather(placeLabel, weather) {
+			const current = weather && weather.current_weather;
+			const daily = weather && weather.daily;
+
+			if (!current) {
+				setStatus('현재 날씨 데이터를 불러오지 못했습니다.', true);
+				// 예보만 표시 시도
+				placeEl.textContent = placeLabel;
+				tempNowEl.textContent = '—°C';
+				descNowEl.textContent = '—';
+				windNowEl.textContent = '— m/s';
+			}
+
+			if (current) {
+				const [desc, emoji] = weatherCodeToKo(current.weathercode);
+				placeEl.textContent = placeLabel;
+				tempNowEl.textContent = `${Math.round(current.temperature)}°C`;
+				descNowEl.textContent = `${emoji} ${desc}`;
+				windNowEl.textContent = `${current.windspeed} m/s`;
+			}
+
+			// 오늘 hi/lo
+			if (daily && daily.temperature_2m_max && daily.temperature_2m_min) {
+				hiLoEl.textContent = `${Math.round(daily.temperature_2m_max[0])} / ${Math.round(daily.temperature_2m_min[0])} °C`;
+			} else {
+				hiLoEl.textContent = '—';
+			}
+
+			// 7일 예보
+			forecastEl.innerHTML = '';
+			if (daily && daily.time) {
+				for (let i = 0; i < daily.time.length; i++) {
+					const [dDesc, dEmoji] = weatherCodeToKo(daily.weathercode[i]);
+					const node = document.createElement('div');
+					node.className = 'day';
+					node.innerHTML = `
+						<div class="muted">${fmtDay(daily.time[i])}</div>
+						<div style="font-size:22px;margin:4px 0;">${dEmoji}</div>
+						<div class="t">${Math.round(daily.temperature_2m_max[i])} / ${Math.round(daily.temperature_2m_min[i])} °C</div>
+						<div class="muted" style="font-size:12px">${dDesc}</div>
+					`;
+					forecastEl.appendChild(node);
+				}
+			}
+		}
+
+		function setStatus(text, isError = false) {
+			statusEl.textContent = text || '';
+			statusEl.style.color = isError ? '#fca5a5' : 'var(--muted)';
+		}
+
+		async function searchByCity() {
+			const q = cityInput.value.trim();
+			if (!q) {
+				setStatus('도시명을 입력하세요.', true);
+				return;
+			}
+			try {
+				setStatus('위치를 찾는 중…');
+				const { latitude, longitude, label } = await geocodeCityToLatLon(q);
+				setStatus('날씨를 불러오는 중…');
+				const weather = await fetchWeather(latitude, longitude);
+				renderWeather(label, weather);
+				setStatus('');
+			} catch (e) {
+				setStatus(e.message || '문제가 발생했습니다.', true);
+			}
+		}
+
+		async function useMyLocation() {
+			if (!('geolocation' in navigator)) {
+				setStatus('이 브라우저는 위치 정보를 지원하지 않습니다.', true);
+				return;
+			}
+			setStatus('내 위치를 가져오는 중…');
+			navigator.geolocation.getCurrentPosition(async (pos) => {
+				try {
+					const { latitude, longitude } = pos.coords;
+					setStatus('날씨를 불러오는 중…');
+					const weather = await fetchWeather(latitude, longitude);
+					const label = `내 위치 (${latitude.toFixed(3)}, ${longitude.toFixed(3)})`;
+					renderWeather(label, weather);
+					setStatus('');
+				} catch (e) {
+					setStatus(e.message || '날씨 조회 실패', true);
+				}
+			}, (err) => {
+				setStatus('위치 권한이 거부되었거나 가져올 수 없습니다.', true);
+			}, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+		}
+
+		searchBtn.addEventListener('click', searchByCity);
+		cityInput.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') searchByCity();
+		});
+		locBtn.addEventListener('click', useMyLocation);
+
+		// 초기: 서울 로딩 (지오코딩 실패 시 좌표 기본값 사용)
+		(async () => {
+			try {
+				const { latitude, longitude, label } = await geocodeCityToLatLon('서울');
+				const weather = await fetchWeather(latitude, longitude);
+				renderWeather(label, weather);
+			} catch (e) {
+				try {
+					const lat = 37.5665, lon = 126.9780; // 서울 좌표
+					const weather = await fetchWeather(lat, lon);
+					renderWeather('서울, 대한민국', weather);
+				} catch {}
+			}
+		})();
+
+		// ---------- Tic-Tac-Toe ----------
+		const tttBoardEl = document.getElementById('tttBoard');
+		const tttTurnEl = document.getElementById('tttTurn');
+		const tttNewBtn = document.getElementById('tttNew');
+		const tttLevel = document.getElementById('tttLevel');
+		let tttBoard, tttTurn, tttOver;
+		function tttInit(){ tttBoard=Array(9).fill(0); tttTurn=1; tttOver=false; tttRender(); }
+		function tttRender(){
+			tttBoardEl.innerHTML='';
+			for(let i=0;i<9;i++){
+				const cell=document.createElement('div'); cell.className='ttt-cell'; cell.dataset.i=i;
+				cell.textContent = tttBoard[i]===1?'X':(tttBoard[i]===2?'O':'');
+				tttBoardEl.appendChild(cell);
+			}
+			tttTurnEl.textContent = tttTurn===1?'X 차례':'O(AI) 차례';
+		}
+		function tttLines(){ return [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]; }
+		function tttWinner(){ for(const [a,b,c] of tttLines()){ if(tttBoard[a] && tttBoard[a]===tttBoard[b] && tttBoard[b]===tttBoard[c]) return tttBoard[a]; } return tttBoard.every(v=>v)!==false?0:null; }
+		function tttHuman(i){ if(tttOver||tttTurn!==1||tttBoard[i]) return; tttBoard[i]=1; tttRender(); const w=tttWinner(); if(w!==null){ tttFinish(w); return; } tttTurn=2; setTimeout(tttAI, 60); }
+		function tttFinish(w){ tttOver=true; if(w===1) alert('X 승리!'); else if(w===2) alert('O(AI) 승리!'); else alert('무승부'); }
+		function tttAI(){ if(tttOver||tttTurn!==2) return; const level=(tttLevel&&tttLevel.value)||'normal'; const move = (level==='easy'? tttRandom(): (level==='hard'? tttBest(): tttSmart())); if(move===-1) return; tttBoard[move]=2; tttRender(); const w=tttWinner(); if(w!==null){ tttFinish(w); return; } tttTurn=1; }
+		function tttRandom(){ const c=[]; for(let i=0;i<9;i++) if(!tttBoard[i]) c.push(i); return c.length? c[Math.floor(Math.random()*c.length)]: -1; }
+		function tttSmart(){ // 즉승>즉방어>중앙>코너>사이드
+			// 즉승
+			for(let i=0;i<9;i++){ if(!tttBoard[i]){ tttBoard[i]=2; if(tttWinner()===2){ tttBoard[i]=0; return i; } tttBoard[i]=0; } }
+			// 방어
+			for(let i=0;i<9;i++){ if(!tttBoard[i]){ tttBoard[i]=1; if(tttWinner()===1){ tttBoard[i]=0; return i; } tttBoard[i]=0; } }
+			if(!tttBoard[4]) return 4;
+			const corners=[0,2,6,8].filter(i=>!tttBoard[i]); if(corners.length) return corners[Math.floor(Math.random()*corners.length)];
+			const sides=[1,3,5,7].filter(i=>!tttBoard[i]); if(sides.length) return sides[Math.floor(Math.random()*sides.length)];
+			return -1;
+		}
+		function tttBest(){ // 미니맥스 완전 탐색
+			function scoreBoard(turn){ const w=tttWinner(); if(w===2) return 10; if(w===1) return -10; if(w===0) return 0; const moves=[]; for(let i=0;i<9;i++) if(!tttBoard[i]) moves.push(i); let best= turn===2? -Infinity: Infinity; for(const mv of moves){ tttBoard[mv]=turn; const sc=scoreBoard(turn===2?1:2); tttBoard[mv]=0; if(turn===2){ if(sc>best) best=sc; } else { if(sc<best) best=sc; } } return best; }
+			let best=-Infinity, move=-1; for(let i=0;i<9;i++){ if(!tttBoard[i]){ tttBoard[i]=2; const sc=scoreBoard(1); tttBoard[i]=0; if(sc>best){ best=sc; move=i; } } } return move;
+		}
+		tttBoardEl.addEventListener('click', (e)=>{ const t=e.target.closest('.ttt-cell'); if(!t) return; tttHuman(parseInt(t.dataset.i,10)); });
+		tttNewBtn.addEventListener('click', tttInit);
+		tttInit();
+
+		// ---------- Gomoku (오목) ----------
+		const gomokuCanvas = document.getElementById('gomokuCanvas');
+		const gtx = gomokuCanvas.getContext('2d');
+		const gomokuTurnEl = document.getElementById('gomokuTurn');
+		const gomokuNewBtn = document.getElementById('gomokuNew');
+		const gomokuLevel = document.getElementById('gomokuLevel');
+		const N=15, cell=gomokuCanvas.width/(N+1); // 여백 포함 그리드
+		let gBoard, gTurn, gOver;
+
+		function gInit(){
+			gBoard = Array.from({length:N}, ()=>Array(N).fill(0)); // 0 empty, 1 black, 2 white
+			gTurn = 1; gOver=false; gRender();
+		}
+		function gPosToCoord(i){ const m=cell; return Math.round((i+1)*m); }
+		function gDrawBoard(){
+			gtx.clearRect(0,0,600,600);
+			gtx.strokeStyle='#374151'; gtx.lineWidth=1.5;
+			for(let i=0;i<N;i++){
+				const p=gPosToCoord(i); gtx.beginPath(); gtx.moveTo(gPosToCoord(0), p); gtx.lineTo(gPosToCoord(N-1), p); gtx.stroke();
+				gtx.beginPath(); gtx.moveTo(p, gPosToCoord(0)); gtx.lineTo(p, gPosToCoord(N-1)); gtx.stroke();
+			}
+		}
+		function gRender(){ gDrawBoard(); for(let r=0;r<N;r++) for(let c=0;c<N;c++){ if(!gBoard[r][c]) continue; gtx.beginPath(); gtx.fillStyle = gBoard[r][c]===1?'#0ea5e9':'#eab308'; gtx.arc(gPosToCoord(c), gPosToCoord(r), cell*0.35, 0, Math.PI*2); gtx.fill(); } gomokuTurnEl.textContent = gTurn===1?'흑 차례':'백(AI) 차례'; }
+		function gCheckWin(r,c){ const who=gBoard[r][c]; if(!who) return false; const dirs=[[1,0],[0,1],[1,1],[1,-1]]; for(const [dr,dc] of dirs){ let cnt=1; for(let k=1;k<5;k++){ const nr=r+dr*k,nc=c+dc*k; if(nr<0||nr>=N||nc<0||nc>=N||gBoard[nr][nc]!==who) break; cnt++; } for(let k=1;k<5;k++){ const nr=r-dr*k,nc=c-dc*k; if(nr<0||nr>=N||nc<0||nc>=N||gBoard[nr][nc]!==who) break; cnt++; } if(cnt>=5) return true; } return false; }
+		function gHumanMove(x,y){ if(gOver||gTurn!==1) return; const {r,c}=gPick(x,y); if(r<0) return; if(gBoard[r][c]) return; gBoard[r][c]=1; gRender(); if(gCheckWin(r,c)){ gOver=true; alert('흑 승리!'); return; } gTurn=2; setTimeout(gAIMove, 60); }
+		function gPick(x,y){ const rect=gomokuCanvas.getBoundingClientRect(); const px=x-rect.left, py=y-rect.top; let bestD=1e9, br=-1, bc=-1; for(let r=0;r<N;r++) for(let c=0;c<N;c++){ const dx=px-gPosToCoord(c)*(rect.width/600); const dy=py-gPosToCoord(r)*(rect.height/600); const d=dx*dx+dy*dy; if(d<bestD){ bestD=d; br=r; bc=c; } } if(Math.sqrt(bestD)>(cell*0.6*(rect.width/600))) return {r:-1,c:-1}; return {r:br,c:bc}; }
+		function gScoreLine(arr, who){ // 간단 휴리스틱
+			let s=0; const opp= who===1?2:1; const str=arr.join('');
+			if(str.includes(`${who}${who}${who}${who}`)) s+=10000;
+			if(str.includes(`${who}${who}${who}0`)) s+=200;
+			if(str.includes(`0${who}${who}${who}`)) s+=200;
+			if(str.includes(`${who}${who}0${who}`)) s+=200;
+			if(str.includes(`${who}${who}`)) s+=20;
+			if(str.includes(`${opp}${opp}${opp}${opp}`)) s+=8000; // 막기 가산
+			return s;
+		}
+		function gEval(who){
+			let score=0; const dirs=[[1,0],[0,1],[1,1],[1,-1]]; const grid=gBoard.map(row=>row.map(x=>x||0));
+			for(let r=0;r<N;r++) for(let c=0;c<N;c++) if(grid[r][c]===who){ for(const [dr,dc] of dirs){ const line=[]; for(let k=-4;k<=4;k++){ const nr=r+dr*k,nc=c+dc*k; line.push(nr>=0&&nr<N&&nc>=0&&nc<N? grid[nr][nc]: 3); } score+=gScoreLine(line, who); } }
+			return score;
+		}
+		function gNeighbors(r,c){ for(let dr=-2;dr<=2;dr++) for(let dc=-2;dc<=2;dc++){ if(!dr&&!dc) continue; const nr=r+dr,nc=c+dc; if(nr>=0&&nr<N&&nc>=0&&nc<N&&gBoard[nr][nc]) return true; } return false; }
+		function gFindImmediate(who){ // 즉승/즉방어 위치
+			for(let r=0;r<N;r++) for(let c=0;c<N;c++) if(!gBoard[r][c]){
+				gBoard[r][c]=who; if(gCheckWin(r,c)){ gBoard[r][c]=0; return [r,c]; } gBoard[r][c]=0;
+			}
+			return null;
+		}
+		function gAIMove(){
+			if(gOver||gTurn!==2) return;
+			// 1) 즉승 시도
+			let move = gFindImmediate(2);
+			// 2) 즉패 방어
+			if(!move) move = gFindImmediate(1);
+			// 3) 근처 후보 + 휴리스틱
+			if(!move){
+				const level = (gomokuLevel && gomokuLevel.value) || 'normal';
+				// 후보 수집: 주변 빈 칸
+				const candidates=[];
+				for(let r=0;r<N;r++) for(let c=0;c<N;c++) if(!gBoard[r][c] && gNeighbors(r,c)) candidates.push([r,c]);
+				if (candidates.length===0) candidates.push([Math.floor(N/2), Math.floor(N/2)]);
+				if (level==='easy') {
+					// 쉬움: 후보에서 랜덤(즉승/방어는 위에서 이미 처리)
+					move = candidates[Math.floor(Math.random()*candidates.length)];
+				} else {
+					let bestScore=-1e9; let bestMoves=[];
+					for(const [r,c] of candidates){
+						gBoard[r][c]=2; let s=gEval(2)-gEval(1); gBoard[r][c]=0;
+						if(level==='hard'){
+							let oppBest=-1e9;
+							for(const [r2,c2] of candidates){
+								if(gBoard[r2][c2]) continue; gBoard[r2][c2]=1; const s2=gEval(1)-gEval(2); gBoard[r2][c2]=0; if(s2>oppBest) oppBest=s2;
+							}
+							s -= oppBest*0.6;
+						}
+						if(s>bestScore){ bestScore=s; bestMoves=[[r,c]]; }
+						else if (s===bestScore){ bestMoves.push([r,c]); }
+					}
+					move = bestMoves[Math.floor(Math.random()*bestMoves.length)];
+				}
+			}
+			const [r,c]=move; gBoard[r][c]=2; gRender(); if(gCheckWin(r,c)){ gOver=true; alert('백(AI) 승리!'); return; } gTurn=1;
+		}
+		gomokuCanvas.addEventListener('click', (e)=> gHumanMove(e.clientX, e.clientY));
+		gomokuNewBtn.addEventListener('click', gInit);
+		gInit();
+		// ---------- Pedometer ----------
+		const stepCountEl = document.getElementById('stepCount');
+		const stepStatusEl = document.getElementById('stepStatus');
+		const stepToggleBtn = document.getElementById('stepToggle');
+		const stepResetBtn = document.getElementById('stepReset');
+		const stepSensitivity = document.getElementById('stepSensitivity');
+
+		let stepRunning = false;
+		let stepCount = 0;
+		let lastStepTs = 0;
+		let hp = { x:0, y:0, z:0 }; // high-pass filtered accel
+		const minIntervalMs = 350;
+		function getThreshold() {
+			return stepSensitivity.value === 'high' ? 0.8 : (stepSensitivity.value === 'low' ? 1.4 : 1.1);
+		}
+		function todayKey() {
+			const d = new Date();
+			const mm = String(d.getMonth()+1).padStart(2,'0');
+			const dd = String(d.getDate()).padStart(2,'0');
+			return `steps_${d.getFullYear()}-${mm}-${dd}`;
+		}
+		function loadSteps() {
+			const v = localStorage.getItem(todayKey());
+			stepCount = v ? parseInt(v,10) : 0;
+			stepCountEl.textContent = String(stepCount);
+		}
+		function saveSteps() { localStorage.setItem(todayKey(), String(stepCount)); }
+		function setStepStatus(t) { stepStatusEl.textContent = t; }
+
+		async function ensureMotionPermission() {
+			if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+				try {
+					const r = await DeviceMotionEvent.requestPermission();
+					return r === 'granted';
+				} catch { return false; }
+			}
+			return true;
+		}
+
+		function onMotion(e) {
+			const a = e.acceleration || e.accelerationIncludingGravity;
+			if (!a) return;
+			// High-pass filter to remove gravity drift
+			const alpha = 0.9;
+			hp.x = alpha * (hp.x + (a.x || 0) - (e.acceleration ? 0 : 0));
+			hp.y = alpha * (hp.y + (a.y || 0) - (e.acceleration ? 0 : 0));
+			hp.z = alpha * (hp.z + (a.z || 0) - (e.acceleration ? 0 : 0));
+			const mag = Math.sqrt(hp.x*hp.x + hp.y*hp.y + hp.z*hp.z);
+			const now = Date.now();
+			if (mag > getThreshold() && (now - lastStepTs) > minIntervalMs) {
+				lastStepTs = now;
+				stepCount += 1;
+				stepCountEl.textContent = String(stepCount);
+				saveSteps();
+			}
+		}
+
+		function startSteps() {
+			if (stepRunning) return;
+			stepRunning = true;
+			setStepStatus('동작 감지 중…');
+			window.addEventListener('devicemotion', onMotion);
+			stepToggleBtn.textContent = '일시정지';
+		}
+		function stopSteps() {
+			if (!stepRunning) return;
+			stepRunning = false;
+			window.removeEventListener('devicemotion', onMotion);
+			setStepStatus('일시정지');
+			stepToggleBtn.textContent = '시작';
+		}
+		stepToggleBtn.addEventListener('click', async () => {
+			if (!stepRunning) {
+				const ok = await ensureMotionPermission();
+				if (!ok) { setStepStatus('센서 권한이 필요합니다. 브라우저 설정을 확인하세요.'); return; }
+				startSteps();
+			} else {
+				stopSteps();
+			}
+		});
+		stepResetBtn.addEventListener('click', () => { stepCount = 0; stepCountEl.textContent = '0'; saveSteps(); });
+		loadSteps();
+
+		// ---------- Calendar ----------
+		const calTitle = document.getElementById('calTitle');
+		const calDays = document.getElementById('calDays');
+		const calPrev = document.getElementById('calPrev');
+		const calNext = document.getElementById('calNext');
+		let curYear, curMonth; // month: 0-11
+
+		function ymd(d) {
+			const mm = String(d.getMonth()+1).padStart(2,'0');
+			const dd = String(d.getDate()).padStart(2,'0');
+			return `${d.getFullYear()}-${mm}-${dd}`;
+		}
+		function loadEvents() {
+			try { return JSON.parse(localStorage.getItem('events')||'{}'); } catch { return {}; }
+		}
+		function saveEvents(obj) { localStorage.setItem('events', JSON.stringify(obj)); }
+
+		const holidayCache = {};
+		async function getHolidays(year) {
+			if (holidayCache[year]) return holidayCache[year];
+			try {
+				const r = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/KR`);
+				if (!r.ok) throw new Error('holiday fetch failed');
+				const list = await r.json();
+				// Normalize: { date: 'YYYY-MM-DD', name: '로컬명' }
+				holidayCache[year] = list.map(x => ({ date: x.date, name: x.localName || x.name }));
+				return holidayCache[year];
+			} catch {
+				// Fallback (subset, 2025)
+				if (year === 2025) {
+					holidayCache[year] = [
+						{ date: '2025-01-01', name: '신정' },
+						{ date: '2025-01-28', name: '설날 연휴' },
+						{ date: '2025-01-29', name: '설날' },
+						{ date: '2025-01-30', name: '설날 연휴' },
+						{ date: '2025-03-01', name: '삼일절' },
+						{ date: '2025-05-05', name: '어린이날' },
+						{ date: '2025-06-06', name: '현충일' },
+						{ date: '2025-08-15', name: '광복절' },
+						{ date: '2025-10-06', name: '추석 연휴' },
+						{ date: '2025-10-07', name: '추석' },
+						{ date: '2025-10-08', name: '추석 연휴' },
+						{ date: '2025-10-03', name: '개천절' },
+						{ date: '2025-10-09', name: '한글날' },
+						{ date: '2025-12-25', name: '성탄절' }
+					];
+					return holidayCache[year];
+				}
+				return [];
+			}
+		}
+
+		async function renderCalendar(y, m) {
+			curYear = y; curMonth = m;
+			calTitle.textContent = `${y}년 ${m+1}월`;
+			calDays.innerHTML = '';
+			const first = new Date(y, m, 1);
+			const startIdx = first.getDay();
+			const lastDate = new Date(y, m+1, 0).getDate();
+			const todayStr = ymd(new Date());
+			const ev = loadEvents();
+			const holidays = await getHolidays(y);
+			for (let i=0;i<startIdx;i++) {
+				const filler = document.createElement('div');
+				filler.className = 'cal-cell';
+				filler.style.visibility = 'hidden';
+				calDays.appendChild(filler);
+			}
+			for (let d=1; d<=lastDate; d++) {
+				const cell = document.createElement('div');
+				cell.className = 'cal-cell';
+				const dateStr = ymd(new Date(y, m, d));
+				if (dateStr === todayStr) cell.classList.add('today');
+				cell.innerHTML = `<div class="d">${d}</div>`;
+				// holiday
+				const h = holidays.find(h => h.date === dateStr);
+				if (h) {
+					const tag = document.createElement('div');
+					tag.className = 'holiday';
+					tag.textContent = h.name;
+					cell.appendChild(tag);
+				}
+				const items = ev[dateStr] || [];
+				if (items.length) {
+					const badge = document.createElement('div');
+					badge.className = 'badge';
+					badge.textContent = `${items.length}개`;
+					cell.appendChild(badge);
+				}
+				cell.addEventListener('click', () => {
+					const title = prompt(`${dateStr} 일정 입력 (빈칸이면 취소)`);
+					if (!title) return;
+					const all = loadEvents();
+					all[dateStr] = all[dateStr] || [];
+					all[dateStr].push({ title });
+					saveEvents(all);
+					renderCalendar(curYear, curMonth);
+				});
+				calDays.appendChild(cell);
+			}
+		}
+		const now = new Date();
+		renderCalendar(now.getFullYear(), now.getMonth());
+		calPrev.addEventListener('click', () => {
+			const d = new Date(curYear, curMonth-1, 1); renderCalendar(d.getFullYear(), d.getMonth());
+		});
+		calNext.addEventListener('click', () => {
+			const d = new Date(curYear, curMonth+1, 1); renderCalendar(d.getFullYear(), d.getMonth());
+		});
+	</script>
+</body>
+</html>
+
